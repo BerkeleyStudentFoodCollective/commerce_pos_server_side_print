@@ -1,0 +1,5 @@
+name = Commerce POS Server-side Print
+description = Control a printer on the server side. Currently only opens the cash drawer.
+package = Commerce POS
+dependencies[] = commerce_pos
+core = 7.x

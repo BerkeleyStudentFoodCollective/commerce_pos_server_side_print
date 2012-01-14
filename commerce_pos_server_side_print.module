@@ -1,0 +1,31 @@
+<?php
+
+/**
+ * Implements hook_form_commerce_pos_settings_form_alter()
+ */
+function commerce_pos_server_side_print_form_commerce_pos_settings_form_alter(&$form, &$form_state) {
+  $form['server_side_print'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Server-side printer'),
+    'commerce_pos_server_side_print_printer_name' => array(
+      '#type' => 'textfield',
+      '#title' => t('Printer name'),
+      '#default_value' => commerce_pos_server_side_print_printer_name(),
+      //TODO: define #element_validate function
+    ),
+  );
+}
+
+/**
+ * Returns the name of the printer.
+ */
+function commerce_pos_server_side_print_printer_name() {
+  return variable_get('commerce_pos_server_side_print_printer_name', '');
+}
+
+/**
+ * Implements hook_commerce_pos_preload().
+ */
+function commerce_pos_server_side_print_commerce_pos_preload() {
+  drupal_add_js(drupal_get_path('module', 'commerce_pos_server_side_print') . '/commerce_pos_server_side_print.js', array('weight' => 30));
+}
