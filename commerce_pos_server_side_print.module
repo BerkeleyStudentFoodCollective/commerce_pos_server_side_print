@@ -13,6 +13,24 @@ function commerce_pos_server_side_print_form_commerce_pos_settings_form_alter(&$
       '#default_value' => commerce_pos_server_side_print_printer_name(),
       //TODO: define #element_validate function
     ),
+    'commerce_pos_server_side_print_header' => array(
+      '#type' => 'textarea',
+      '#title' => t('Header'),
+      '#default_value' => commerce_pos_server_side_print_header(),
+    ),
+    'commerce_pos_server_side_print_footer' => array(
+      '#type' => 'textarea',
+      '#title' => t('Footer'),
+      '#default_value' => commerce_pos_server_side_print_footer(),
+    ),
+    'commerce_pos_server_side_print_price_components' => array(
+      '#type' => 'select',
+      '#multiple' => TRUE,
+      '#options' => commerce_price_component_titles(),
+      '#title' => t('Price components'),
+      '#description' => t('Select the price components to be included in the line item price.'),
+      '#default_value' => commerce_pos_server_side_print_price_components(),
+    ),
   );
 }
 
@@ -24,8 +42,192 @@ function commerce_pos_server_side_print_printer_name() {
 }
 
 /**
+ * Returns the receipt header.
+ */
+function commerce_pos_server_side_print_header() {
+  return variable_get('commerce_pos_server_side_print_header', '');
+}
+
+/**
+ * Returns the receipt footer.
+ */
+function commerce_pos_server_side_print_footer() {
+  return variable_get('commerce_pos_server_side_print_footer', '');
+}
+
+/**
+ * Returns the chosen price components.
+ */
+function commerce_pos_server_side_print_price_components() {
+  return variable_get('commerce_pos_server_side_print_price_components', '');
+}
+
+/**
  * Implements hook_commerce_pos_preload().
  */
 function commerce_pos_server_side_print_commerce_pos_preload() {
   drupal_add_js(drupal_get_path('module', 'commerce_pos_server_side_print') . '/commerce_pos_server_side_print.js', array('weight' => 30));
+}
+
+/**
+ * Implements hook_theme().
+ */
+function commerce_pos_server_side_print_theme() {
+  return array(
+    'commerce_pos_server_side_print_order_receipt' => array(
+      'variables' => array('order' => NULL),
+    ),
+  );
+}
+
+/**
+ * Template preprocessor for server-side receipt.
+ */
+function template_preprocess_commerce_pos_server_side_print_order_receipt(&$variables) {
+  $order = $variables['order'];
+  $variables['header'] = commerce_pos_server_side_print_header();
+  $variables['footer'] = commerce_pos_server_side_print_footer();
+  $variables['date'] = format_date(time());
+  $variables['order_number'] = $order->order_number;
+  $variables['separator'] = '------------------------------';
+
+  $variables['line_items'] = array();
+  $included_components = commerce_pos_server_side_print_price_components();
+
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+  foreach($order_wrapper->commerce_line_items as $line_item_wrapper) {
+    $line_item = $line_item_wrapper->value();
+    $title = commerce_line_item_title($line_item);
+    $lines = '';
+    $total_price = $line_item_wrapper->commerce_total->value();
+    $unit_price = $line_item_wrapper->commerce_unit_price->value();
+    if ($line_item->quantity != 1) {
+      $lines = '   ' . $line_item->quantity . ' @ ' .
+        commerce_pos_server_side_print_display_price($unit_price, $included_components) . "\n";
+    }
+    $lines .= str_pad(drupal_substr($title, 0, 20), 20) .
+      str_pad(commerce_pos_server_side_print_display_price($total_price, $included_components), 8, ' ', STR_PAD_LEFT);
+    $variables['line_items'][] = $lines;
+  }
+
+  //Now components to be listed at the bottom.
+  $order_total = $order_wrapper->commerce_order_total->value();
+  $excluded_components = commerce_price_component_titles();
+  foreach($included_components as $component) {
+    unset($excluded_components[$component]);
+  }
+  $variables['components'] = array(
+    '0' => array(
+    	'title' => t('Subtotal'),
+    	'value' => commerce_pos_server_side_print_display_price($order_total, $included_components),
+    ),
+  );
+
+  foreach($excluded_components as $component => $title) {
+    $total = commerce_price_component_total($order_total, $component);
+    if ($total['amount'] != 0) {
+      $variables['components'][] = array(
+      	'title' => drupal_substr($title, 0, 18),
+      	'value' => commerce_pos_server_side_print_display_price($order_total, array($component)),
+      );
+    }
+  }
+  //Add the total.
+  $total = commerce_price_component_total($order_total);
+  $variables['components'][] = array(
+  	'title' => t('TOTAL'),
+  	'value' => commerce_currency_format($total['amount'], $total['currency_code']),
+  );
+
+  //Now payments.
+  $payments = commerce_payment_transaction_load_multiple(array(), array('order_id' => $order->order_id));
+  $methods = commerce_pos_payment_methods();
+  foreach($payments as $payment) {
+    $title = $methods[$payment->payment_method]['short_title'];
+    if ($payment->amount < 0) {
+      $title = t('@method change', array('@method' => $title));
+    }
+    $variables['payments'][] = array(
+      'method' => $title,
+      'value' => commerce_currency_format($payment->amount, $payment->currency_code),
+    );
+  }
+}
+
+/**
+ * Theme function for server-side receipts.
+ */
+function theme_commerce_pos_server_side_print_order_receipt($variables) {
+  $output = $variables['header'] . "\n" . $variables['date'] . "\n" . $variables['separator'] . "\n";
+  foreach($variables['line_items'] as $line_item) {
+    $output .= $line_item . "\n";
+  }
+  $output .= $variables['separator'] . "\n";
+  foreach($variables['components'] as $component) {
+    $output .= str_pad($component['title'], 18, ' ', STR_PAD_LEFT) . ' ' . $component['value'] . "\n";
+  }
+  $output .= $variables['separator'] . "\n";
+  foreach($variables['payments'] as $payment) {
+    $output .= str_pad($payment['method'], 18, ' ', STR_PAD_LEFT) . ' ' . $payment['value'] . "\n";
+  }
+  $output .= $variables['footer'];
+
+  return $output;
+}
+
+/**
+ * Return a formatted string for displaying the price of a line item
+ */
+function commerce_pos_server_side_print_display_price($price, $components) {
+  $total = commerce_pos_server_side_print_sum_components($price, $components);
+  return commerce_currency_format($total['amount'], $total['currency_code']);
+}
+
+/**
+ * Sums selected components in a price array.
+ * @param $price
+ * 	The price array.
+ * @param $component
+ * 	An array of component names to sum.
+ *
+ * @return
+ * 	The total of the specified components.
+ */
+function commerce_pos_server_side_print_sum_components($price, $components) {
+  $total = array(
+    'amount' => 0,
+    'currency_code' => $price['currency_code'],
+  );
+  foreach($components as $component) {
+    $component_total = commerce_price_component_total($price, $component);
+    //Note that commerce_price_component_total() returns a total in the price's currency.
+    $total['amount'] += $component_total['amount'];
+  }
+  return $total;
+}
+
+/**
+ * Implements hook_commerce_pos_action_info_alter();
+ */
+function commerce_pos_server_side_print_commerce_pos_action_info_alter(&$action_info) {
+  $action_info['commerce_pos_order_print_receipt']['callbacks']['execute'] = array(
+    'commerce_pos_server_side_print_receipt_execute',
+  );
+}
+
+/**
+ * Execute callback for printing a receipt.
+ */
+function commerce_pos_server_side_print_receipt_execute(&$variables) {
+  $render = array(
+    '#order' => $variables['order'],
+    '#theme' => 'commerce_pos_server_side_print_order_receipt',
+  );
+  $printer_name = commerce_pos_server_side_print_printer_name();
+  //Write the file.
+  $filename = file_directory_temp() . '/commerce_pos_server_side_print_order_receipt.txt';
+  file_put_contents($filename, drupal_render($render));
+  //Send to printer.
+  $command = "lpr -P $printer_name $filename";
+  exec($command);
 }
