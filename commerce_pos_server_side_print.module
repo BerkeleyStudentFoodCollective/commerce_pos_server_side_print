@@ -89,7 +89,7 @@ function template_preprocess_commerce_pos_server_side_print_order_receipt(&$vari
   $variables['footer'] = commerce_pos_server_side_print_footer();
   $variables['date'] = format_date(time());
   $variables['order_number'] = $order->order_number;
-  $variables['separator'] = '------------------------------';
+  $variables['separator'] = '----------------------------';
 
   $variables['line_items'] = array();
   $included_components = commerce_pos_server_side_print_price_components();
@@ -158,7 +158,9 @@ function template_preprocess_commerce_pos_server_side_print_order_receipt(&$vari
  * Theme function for server-side receipts.
  */
 function theme_commerce_pos_server_side_print_order_receipt($variables) {
-  $output = $variables['header'] . "\n" . $variables['date'] . "\n" . $variables['separator'] . "\n";
+  $output = $variables['header'] . "\n" . $variables['date'] . "\n"
+	  . t('Order @number', array('@number' => $variables['order_number']))
+	  . "\n" . $variables['separator'] . "\n";
   foreach($variables['line_items'] as $line_item) {
     $output .= $line_item . "\n";
   }
